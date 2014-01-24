@@ -7,6 +7,7 @@ from __future__ import (
 from collections import (
     defaultdict,
     deque,
+    namedtuple,
 )
 from itertools import chain
 
@@ -25,11 +26,7 @@ from .proto import (
 from .util import make_logger, clock_time
 
 
-class WorkerProxy(object):
-    def __init__(self, worker_id, service, heartbeat_at):
-        self.id = worker_id
-        self.service = service
-        self.heartbeat_at = heartbeat_at
+WorkerProxy = namedtuple("WorkerProxy", ["id", "service"])
 
 
 class Broker(object):
@@ -53,12 +50,6 @@ class Broker(object):
         self.heartbeat_at = clock_time() + self.heartbeat_timeout
 
     def disconnect(self):
-        # for _, worker_ids in self.services.iteritems():
-        #     self.logger.info("Sending DISCONNECT to worker")
-        #     for worker_id in worker_ids:
-        #         msg = [worker_id, MDP_EMPTY, MDPW, MDPW_DISCONNECT]
-        #         self.socket.send_multipart(msg)
-
         self.ctx.destroy()
         self.ctx = None
         self.socket = None
@@ -82,19 +73,8 @@ class Broker(object):
         service = msg[2]
         if service in self.services and len(self.services[service]):
             worker_id = self.services[service].popleft()
-            outgoing = [
-                worker_id,
-                MDP_EMPTY,   # frame 0
-                MDPW,
-                MDPW_REQUEST,
-                client_id,
-                MDP_EMPTY,
-                msg[-1],
-            ]
-            self.logger.info("Sending REQUEST to worker {!r}".format(
-                worker_id
-            ))
-            self.socket.send_multipart(outgoing)
+            msg.insert(0, client_id)
+            self.send_request_msg(worker_id, msg)
             self.services[service].append(worker_id)
         else:
             # TODO: should queue the request, and hands it
@@ -102,6 +82,7 @@ class Broker(object):
             self.logger.info(
                 "Client is requesting non-existant service {!r}".format(
                     service))
+            msg.insert(0, client_id)
 
     def run(self):
         try:
@@ -128,11 +109,25 @@ class Broker(object):
         self.logger.info("Sending HEARTBEAT to worker {!r}".format(worker_id))
         self.socket.send_multipart(outgoing)
 
+    def send_request_msg(self, worker_id, msg):
+        outgoing = [
+            worker_id,
+            MDP_EMPTY,   # frame 0
+            MDPW,
+            MDPW_REQUEST,
+            msg[0],
+            MDP_EMPTY,
+            msg[-1],
+        ]
+        self.logger.info("Sending REQUEST to worker {!r}".format(
+            worker_id
+        ))
+        self.socket.send_multipart(outgoing)
+
     def check_heartbeat(self):
         if clock_time() > self.heartbeat_at:
             # send heartbeat to idle workers
             for worker_id in chain(*self.services.itervalues()):
-                # TODO: purge zombie workers
                 self.send_heartbeat_msg(worker_id)
             self.heartbeat_at = clock_time() + self.heartbeat_timeout
 
@@ -173,8 +168,7 @@ class Broker(object):
     def handle_ready_msg(self, worker_id, msg):
         if not worker_id in self.workers:
             service = msg[3]
-            heartbeat_at = clock_time() + self.heartbeat_timeout
-            worker = WorkerProxy(worker_id, service, heartbeat_at)
+            worker = WorkerProxy(worker_id, service)
             self.workers[worker_id] = worker
             self.services[service].append(worker_id)
             self.logger.info(
@@ -183,6 +177,3 @@ class Broker(object):
     def handle_heartbeat_msg(self, worker_id):
         self.logger.info(
             "Receiving HEARTBEAT from worker {!r}".format(worker_id))
-        if worker_id in self.workers:
-            worker = self.workers[worker_id]
-            worker.heartbeat_at = clock_time() + self.heartbeat_timeout

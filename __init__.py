@@ -5,7 +5,7 @@ from __future__ import (
     unicode_literals,
 )
 
-from .broker import Broker  # NOQA
+from ._meta import __version__  # NOQA
 from .client import Client  # NOQA
 from .worker import Worker  # NOQA
-from ._meta import __version__  # NOQA
+from .broker import Broker  # NOQA
