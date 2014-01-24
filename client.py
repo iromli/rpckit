@@ -6,16 +6,18 @@ from __future__ import (
 )
 
 import zmq
+from zmq.utils.strtypes import asbytes
 
 from .exc import ConnectionError
-from .proto import MDPC
+from .proto import MDPC, MDP_EMPTY
 from .util import make_logger
 from .serialization import default_serializer
 
 
+
 class Client(object):
     def __init__(self, endpoint, **opts):
-        self.ctx = zmq.Context()
+        self.ctx = None
         self.endpoint = endpoint
         self.socket = None
         self.serializer = opts.get("serializer", default_serializer)
@@ -29,7 +31,6 @@ class Client(object):
 
         self.timeout = opts.get("timeout", 5)
         self.retries = opts.get("retries", 5)
-        self.reconnect()
 
     def reconnect(self):
         """Reconnects to broker.
@@ -40,7 +41,8 @@ class Client(object):
         if self.socket:
             self.socket.close()
 
-        self.socket = self.ctx.socket(zmq.REQ)
+        self.ctx = zmq.Context()
+        self.socket = self.ctx.socket(zmq.DEALER)
         self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.connect(self.endpoint)
         self.logger.info("Trying to establish a connection to broker")
@@ -52,21 +54,24 @@ class Client(object):
         self.ctx = None
         self.socket = None
 
-    def dispatch(self, service_name, args):
-        """Makes a request to remote service (via broker) and retrieve
-        the result.
-        """
-        poller = zmq.Poller()
-        retries_left = self.retries
+
+    def send(self, service, args):
+        if not self.socket:
+            self.reconnect()
+
+        msg = [MDP_EMPTY, MDPC, asbytes(service), self.serializer.dumps(args)]
+        self.socket.send_multipart(msg)
+
+    def recv(self, timeout=None, retries=None):
+        if not self.socket:
+            self.reconnect()
 
         try:
-            msg = [MDPC, service_name]
-            msg.extend([self.serializer.dumps(args)])
-
+            poller = zmq.Poller()
+            retries_left = retries or self.retries
+            timeout = timeout or self.timeout
             while 1:
-                self.socket.send_multipart(msg)
                 poller.register(self.socket, zmq.POLLIN)
-
                 # wait for incoming response from broker
                 events = dict(poller.poll(self.timeout * 1000))
 
