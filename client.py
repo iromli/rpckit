@@ -14,7 +14,6 @@ from .util import make_logger
 from .serialization import default_serializer
 
 
-
 class Client(object):
     def __init__(self, endpoint, **opts):
         self.ctx = None
@@ -54,12 +53,17 @@ class Client(object):
         self.ctx = None
         self.socket = None
 
-
-    def send(self, service, args):
+    def send(self, service, func, args):
         if not self.socket:
             self.reconnect()
 
-        msg = [MDP_EMPTY, MDPC, asbytes(service), self.serializer.dumps(args)]
+        msg = [
+            MDP_EMPTY,
+            MDPC,
+            asbytes(service),
+            self.serializer.dumps(func),
+            self.serializer.dumps(args),
+        ]
         self.socket.send_multipart(msg)
 
     def recv(self, timeout=None, retries=None):

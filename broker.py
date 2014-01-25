@@ -117,7 +117,8 @@ class Broker(object):
             MDPW_REQUEST,
             msg[0],
             MDP_EMPTY,
-            msg[-1],
+            msg[4],
+            msg[5],
         ]
         self.logger.info("Sending REQUEST to worker {!r}".format(
             worker_id

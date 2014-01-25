@@ -8,7 +8,6 @@ import time
 
 import zmq
 
-# from .exc import ConnectionError
 from .proto import (
     MDP_EMPTY,
     MDPW,
@@ -25,16 +24,13 @@ from .util import (
 from .serialization import default_serializer
 
 
-def helloworld(name):
-    return "Hello, {}".format(name)
-
-
 class Worker(object):
-    def __init__(self, service, endpoint, **opts):
+    def __init__(self, service, endpoint, methods=None, **opts):
         self.ctx = zmq.Context()
         self.socket = None
         self.endpoint = endpoint
         self.service = service
+        self.methods = methods or {}
         self.serializer = opts.get("serializer", default_serializer)
 
         logger_opts = {
@@ -55,6 +51,7 @@ class Worker(object):
         self.ctx.destroy()
         self.ctx = None
         self.socket = None
+        self.methods = {}
 
     def reconnect(self):
         if self.socket:
@@ -91,11 +88,14 @@ class Worker(object):
         """Sends reply to broker.
         """
         client_id = msg[3]
-        args = self.serializer.loads(msg[-1])
+        method = self.serializer.loads(msg[5])
+        args = self.serializer.loads(msg[6])
         # TODO: handle error from worker
+        result = self.methods[method](*args)
+
         msg = [
             MDP_EMPTY, MDPW, MDPW_REPLY, client_id,
-            MDP_EMPTY, self.serializer.dumps(helloworld(*args)),
+            MDP_EMPTY, self.serializer.dumps(result),
         ]
         self.logger.info("Sending REPLY to broker")
         self.socket.send_multipart(msg)
