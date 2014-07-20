@@ -53,7 +53,7 @@ class Client(object):
         self.ctx = None
         self.socket = None
 
-    def send(self, service, func, args):
+    def send(self, service, func, args, timeout=None, retries=None):
         if not self.socket:
             self.reconnect()
 
@@ -65,10 +65,6 @@ class Client(object):
             self.serializer.dumps(args),
         ]
         self.socket.send_multipart(msg)
-
-    def recv(self, timeout=None, retries=None):
-        if not self.socket:
-            self.reconnect()
 
         try:
             poller = zmq.Poller()
